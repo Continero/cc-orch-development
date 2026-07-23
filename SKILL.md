@@ -69,7 +69,7 @@ Non-negotiable engineering standards. They go INTO the dispatch prompt AND INTO 
 **Family heuristic.** When you have more than one model family available, pick the one that fits:
 - Prefer the family that best matches the repo's conventions and the task's shape; prefer a family that reads your project's convention files.
 - For **independent second-opinion / verification passes**, deliberately use a *different* family than wrote the code — different lineages have different blind spots.
-- Present-day examples of families are Claude, GPT/Codex, Grok, local models — you may have any subset. The methodology doesn't require a specific one.
+- Present-day examples of families are Claude, GPT/Codex, Grok, Gemini, Kimi, and local models — you may have any subset, each dispatched through its own CLI/tool. The methodology doesn't require a specific one; two different lineages are enough for the cross-family review gate.
 
 **Model tier — cheapest that is good enough.** After picking the family, pick the tier by task demands, not habit:
 
@@ -90,6 +90,11 @@ Non-negotiable engineering standards. They go INTO the dispatch prompt AND INTO 
 **Cross-family review for load-bearing changes.** For any Frontier-tier task or architecture-shaping / security-sensitive change, the reviewer MUST be a **different model family than the writer**, running in its own native tool. Relay the reviewer's verdict **verbatim** — never soften a FAIL into a summary. A FAIL routes back to a developer (counts toward the abort cap); you don't overrule it inline. Standard/Light tasks get the normal review; this is the extra gate for the changes that hurt most when wrong.
 
 **Dispatching non-native subagents.** A subagent in a different tool gets no session context: the prompt must be self-contained — absolute repo paths, the task verbatim, relevant conventions inlined, plus the same TDD + honest-report contract. Verification is unchanged: their report is a claim like any other.
+
+**Secrets & data governance — HARD BLOCK for hosted third-party families.** A dispatch prompt is data you are handing to an external provider. Never put credentials of any kind — API keys, passwords, tokens, SAS/connection strings, private keys, `.env` contents — into a prompt sent to a hosted third-party dev family. Reference secrets by name/placeholder and let the code read them from the environment at runtime; if a task genuinely cannot be expressed without a live secret, keep it on a family you trust for that data (or do it yourself).
+- **Kimi (Moonshot): HARD BLOCK — no exceptions.** Never share any API key, password, or other credential with a Kimi subagent, in the prompt or in any file you hand it. If a task would require exposing a secret to Kimi, route it to a different family instead. This is not overridable by convenience or deadline.
+- Apply the same caution, at your own data-governance threshold, to any other hosted family; local models you run yourself are the exception.
+- This mirrors the logging rule below: secrets never reach a log, and they never reach an external dev prompt either.
 
 ## Red flags — STOP, you are rationalizing
 
