@@ -37,10 +37,10 @@ Multi-agent development with institutionalized distrust. The session model is PM
 ## Dispatch contract (include in every developer prompt)
 
 - The task verbatim from the plan + exact repo paths.
-- **`done_when` — a machine-checkable acceptance command** defined in the plan BEFORE work starts: a shell command whose exit 0 means the task is done (a specific test target, a build+smoke sequence, etc.). If a criterion can't be written as a shell command, rewrite it until it can — "a shell can't check it" means neither can your verification. Your verification STARTS by running that command yourself (not by reading the report).
+- **`done_when` — a machine-checkable acceptance command** defined in the plan BEFORE work starts: a shell command whose exit 0 means the task is done (a specific test target, a build+smoke sequence, etc.). For **user-facing behavior it includes an E2E path** driving the real flow via test ids (see Development standards). If a criterion can't be written as a shell command, rewrite it until it can — "a shell can't check it" means neither can your verification. Your verification STARTS by running that command yourself (not by reading the report).
 - **Explicit model AND effort — never inherit.** State both. Subagents often inherit the session's model and effort; if your session runs at a high tier, an inherited "light" task silently runs at the expensive tier — the most expensive way to do the cheapest work. Pin every dispatch (light→low, standard→medium, frontier→high). Any subagent the dev itself spawns must be pinned too.
 - "TDD required: failing test first, watch it fail, minimal implementation, watch it pass."
-- **Development standards contract** (inline the *Development standards* section below into the prompt — a subagent in another tool won't read this skill): YAGNI/DRY/KISS, build for full testability, and ship the E2E automation hooks (stable test ids etc.) WITH the feature.
+- **Development standards contract** (inline the *Development standards* section below into the prompt — a subagent in another tool won't read this skill): YAGNI/DRY/KISS, build for full testability, ship the E2E automation hooks (stable test ids etc.), and add full auditable logging (debug/info/error, every decision + outcome, redacted) — all WITH the feature, never later.
 - Honest-report contract: "Report ONLY verifiable facts: files changed; exact commands run with verbatim output tails; what works; what does NOT work or was skipped; open concerns. Never claim success without pasting the passing output. A truthful failure report is a good report. Never embellish."
 
 ## Development standards (required of every dev; verified by the orchestrator)
@@ -57,12 +57,22 @@ Non-negotiable engineering standards. They go INTO the dispatch prompt AND INTO 
 - Code is written to BE tested: dependencies injectable/mockable (I/O, clock, network, randomness behind seams), pure logic separable from side effects, no un-observable failure paths. If a thing is hard to test, fix the design, don't skip the test.
 - Every change ships its tests in the same unit of work. Test the behavior and the failure paths, not just the happy path.
 
-**Build for full E2E automation — prepare the hooks up front.**
-- Every UI change ships the automation affordances WITH the feature, never "later":
-  - **Stable, semantic test ids** (`data-testid` or the project's existing convention — grep first) on every element a test must find or act on: interactive controls, form fields, state containers, list items, toasts/errors. Stable = tied to identity/role, not to copy, order, or styling classes.
-  - Deterministic, awaitable states — no reliance on arbitrary sleeps; expose loading/empty/error/success states a test can assert on.
-  - Test-reachable seams for external dependencies (auth, payments, third-party APIs) so the flow runs in CI without hitting live services.
-- Missing test hooks on a UI change is a redispatch, same as a missing test.
+**Full E2E-testability is designed in from the start, not bolted on.**
+Everything is treated as something that WILL be driven end-to-end (e.g. Playwright). This is a design constraint from the plan onward — you never ship a feature and "add the E2E later".
+- **At plan time:** any user-facing behavior's `done_when` includes an **E2E path** (a spec that drives the real flow), and the plan names the test ids and observable states the dev must add.
+- **During dev (built WITH the feature, same commit):**
+  - **Stable, semantic test ids** (`data-testid` or the project's existing convention — grep first) on every element a test must find or act on: controls, form fields, state containers, list items/rows, toasts, empty/loading/error markers. Stable = tied to identity/role, never to copy, order, or styling classes.
+  - **Deterministic, awaitable states** — no arbitrary sleeps; expose explicit loading/empty/error/success states a test can `await` and assert on.
+  - **Test-reachable seams** for external dependencies (auth, payments, live APIs) so the flow runs in CI without hitting live services — seed state, stub/replay the boundary. Backend/API work is E2E-ready too: stable contracts, deterministic responses, seedable fixtures.
+- A UI/flow change without its test ids + awaitable states is a **redispatch**, same as a missing test — acceptance is "a test can prove it works, unattended", not just "it works". This is what makes the *Standing invariant* gate possible.
+
+**Full auditable logging is designed in from the start — everything that decides or happens is logged.**
+The bar: from the logs alone, someone can reconstruct *everything the app did* — what happened, in what order, why, with the data that makes it meaningful — without a debugger or asking the author. A design constraint from the plan onward, checked in review, not a "add logging when we debug it" afterthought.
+- **Log every decision and outcome:** each branch taken (and why), state transition, external call (request + result), mutation, job start/finish, auth/permission decision, handled error. A path that runs silently is a hole in the audit trail.
+- **Levels, used consistently:** `debug` (fine-grained internal flow — inputs, intermediate values, chosen branch; off in prod but present in code); `info` (the business/audit narrative — who did what, to which entity, what result; the "reconstruct what happened" layer); `error` (every failure with cause + context — never a swallowed exception, never `except: pass`, never fire-and-forget without an error log).
+- **Include the data where it makes sense** — ids, entity keys, counts, statuses, a correlation/request id per operation so events tie together across layers.
+- **Redaction is non-negotiable:** passwords, tokens, keys, secrets, sensitive PII never reach any log at any level — log a reference/shape, never the secret.
+- A change whose decisions or failures can't be reconstructed from logs — a silent path, a swallowed error, a business action with no `info` line — is a **redispatch**, same as a missing test. (See validation playbook §4.)
 
 ## Developer routing
 
@@ -172,10 +182,10 @@ A goal verified once is an assumption with a timestamp. Before the run is "done"
 
 ## Orchestrator pre-merge checklist (run every time, yourself)
 1. Run the task's `done_when` command yourself first (green, output you saw), then the fresh full suite: unit + integration + lint + typecheck + build.
-2. Read the diff. Scan for weakened tests (removed/loosened asserts, skip/xfail, hardcoded expecteds, widened tolerances) and for `except: pass` / swallowed errors. Also check the Development standards: YAGNI, DRY, KISS, and — for any UI change — the E2E hooks. A violation is a redispatch, not a note.
+2. Read the diff. Scan for weakened tests (removed/loosened asserts, skip/xfail, hardcoded expecteds, widened tolerances) and for `except: pass` / swallowed errors. Also check the Development standards: YAGNI, DRY, KISS, for any UI change the E2E hooks (test ids + awaitable states), and auditable logging on every decision/outcome (levels + redaction, checked at item 5). A violation is a redispatch, not a note.
 3. Real-target verification for anything touching production tech (DB schema/types, driver, external API, blob, signing, per-platform) — or an explicit, loud "unverified because X + here's the command".
 4. Integration seam check if this PR shares a surface with recently-merged work.
-5. Observability: do this change's failure paths emit correlated, remotely-visible, redacted logs?
+5. **Auditable logging (full, not just failures):** can you reconstruct *everything this change does* from the logs alone — every decision + outcome, at the right level (debug/info/error), with the data (ids, correlation id) that makes events meaningful, secrets redacted? A silent path, a swallowed error, or a business action with no `info` audit line is a redispatch (see Development standards → auditable logging + validation playbook §4).
 6. Consumers/precedence: who else reads/writes what this touches; what config the deployed process really uses.
 7. CI green (or your local matrix is the gate); no secrets; no red bypassed.
 8. Only then merge. Deploy / outward-facing steps get explicit approval.
