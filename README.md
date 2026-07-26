@@ -16,6 +16,15 @@ cp -r orch-development ~/.claude/skills/orch-development
 
 (Or drop it into a plugin's `skills/` directory.) It activates on phrases like "orch-development", "orchestrated development", "multi-agent dev", or "let the orchestrator drive".
 
+`devlog.py` ships alongside the skill as a working reference implementation of the retrospective log — append one entry per verification, then aggregate before the next run:
+
+```bash
+python3 devlog.py add --json '{"kind":"task","model":"…","tier":"standard","attempt":1,"outcome":"pass"}'
+python3 devlog.py retro --days 30     # fail rate per model, failure classes, gate escapes, instruction gaps
+```
+
+It's plain stdlib Python writing JSONL (`./devlog/devlog.jsonl`, or `$DEVLOG_FILE`). Use it, or point the skill at whatever log you already keep — the discipline matters more than the tool.
+
 ## Adapt to your own setup
 
 The methodology is model-agnostic; a few things you should tailor:
@@ -24,8 +33,10 @@ The methodology is model-agnostic; a few things you should tailor:
 - [ ] **How you dispatch subagents.** The skill assumes you can spawn developer agents and pin their model + effort. Wire this to your tool's mechanism (Task/Agent tool, a headless CLI call, etc.).
 - [ ] **Your `done_when` commands.** Per project: the exact shell command (test target, build+smoke) that proves a task is done.
 - [ ] **Your CI / E2E gate.** The "standing invariant" step assumes you can add a durable check; point it at your CI and E2E harness.
-- [ ] **Your limits.** Rate/budget/context caps differ per plan — the skill tells you to hand off cleanly before hitting them, but the thresholds are yours.
-- [ ] **Your devlog.** A plain file works; swap in whatever you already use.
+- [ ] **Your limits.** Rate/budget/context caps differ per plan — the skill hands off at ~70/80 % of whatever your ceiling is, but the ceiling is yours to know.
+- [ ] **Your baton-pass command.** The skill starts a fresh session pointed at `HANDOFF.md` when a limit is near; the exact launch command (and which account/profile it targets) depends on your tool.
+- [ ] **Your visual QA loop.** Checklist item 7 requires real screenshots in both themes at two viewports — wire it to your browser automation.
+- [ ] **Your devlog.** `devlog.py` works out of the box; swap in whatever you already use.
 
 ## Setting up your model families
 

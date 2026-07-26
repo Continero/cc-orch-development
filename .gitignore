@@ -1,0 +1,3 @@
+# Your own retrospective log is local data, not part of the skill.
+devlog/
+*.jsonl
