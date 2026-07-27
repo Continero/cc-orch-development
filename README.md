@@ -36,6 +36,7 @@ The methodology is model-agnostic; a few things you should tailor:
 - [ ] **Your limits.** Rate/budget/context caps differ per plan — the skill hands off at ~70/80 % of whatever your ceiling is, but the ceiling is yours to know.
 - [ ] **Your baton-pass command.** The skill starts a fresh session pointed at `HANDOFF.md` when a limit is near; the exact launch command (and which account/profile it targets) depends on your tool.
 - [ ] **Your visual QA loop.** Checklist item 7 requires real screenshots in both themes at two viewports — wire it to your browser automation.
+- [ ] **A `DEPLOYMENT.md` per deploying repo.** Playbook §6 makes this mandatory: where each environment lives, how it ships, how to roll back. Write it once from what you already know, mark unverified rows as such, and correct it as reality contradicts it. Names of env vars and vault paths only — never a secret value.
 - [ ] **Your devlog.** `devlog.py` works out of the box; swap in whatever you already use.
 
 ## Setting up your model families
