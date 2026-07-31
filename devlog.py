@@ -36,6 +36,7 @@ import subprocess
 import sys
 import time
 from collections import Counter
+from string import punctuation
 
 LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "devlog")
 LOG_FILE = os.environ.get("DEVLOG_FILE") or os.path.join(LOG_DIR, "devlog.jsonl")
@@ -72,6 +73,7 @@ def load(days=None, repo=None):
         return []
     cutoff = time.time() - days * 86400 if days else None
     out = []
+    malformed_timestamps = 0
     with open(LOG_FILE) as f:
         for line in f:
             line = line.strip()
@@ -89,8 +91,16 @@ def load(days=None, repo=None):
                     if ets < cutoff:
                         continue
                 except ValueError:
-                    pass
+                    # keep it rather than drop it, but say so: a silently skipped
+                    # entry is learning thrown away, which is the one thing this
+                    # log exists to prevent
+                    malformed_timestamps += 1
             out.append(e)
+    if malformed_timestamps:
+        print(
+            f"warning: kept {malformed_timestamps} entries with unparseable timestamps",
+            file=sys.stderr,
+        )
     return out
 
 
@@ -151,12 +161,61 @@ def cmd_retro(argv):
         for e in escaped[-5:]:
             print(f"  - [{e.get('ts', '')[:10]}] {e.get('what_failed') or e.get('task')}")
 
-    gaps = [(e.get("ts", "")[:10], e.get("model", "?"), e["instruction_gap"])
-            for e in entries if e.get("instruction_gap")]
+    # how often the signals are actually being logged — a gate-attribution field
+    # nobody fills in cannot tell you whether your gates work
+    def coverage(key):
+        populated = sum(bool(e.get(key)) for e in tasks)
+        percentage = 100 * populated / len(tasks) if tasks else 0
+        print(f"{key} coverage: {populated}/{len(tasks)} ({percentage:.1f}%)")
+
+    if tasks:
+        coverage("caught_by")
+        coverage("detection_latency")
+
+    # a gap that appears twice is a skill-edit candidate, so cluster rather than
+    # list: repeats are the signal, and a flat tail of 15 lines hides them
+    gaps = [e for e in entries if e.get("instruction_gap")]
     if gaps:
         print("\nInstruction gaps (feed these back into dispatch prompts):")
-        for ts, m, g in gaps[-15:]:
-            print(f"  - [{ts} {m}] {g}")
+        clusters = {}
+        fourteen_days_ago = time.time() - 14 * 86400
+        for e in gaps:
+            text = str(e["instruction_gap"])
+            normalized = " ".join(text.lower().strip().split())
+            if len(normalized) >= 2 and normalized[0] == normalized[-1] \
+                    and normalized[0] in "\"'":
+                normalized = normalized[1:-1].strip()
+            normalized = normalized.rstrip(punctuation).rstrip()
+            cluster = clusters.setdefault(
+                normalized,
+                {"count": 0, "last_14d": 0, "recent": "", "text": text},
+            )
+            cluster["count"] += 1
+            timestamp = e.get("ts", "")
+            cluster["recent"] = max(cluster["recent"], timestamp[:10])
+            try:
+                epoch = time.mktime(time.strptime(timestamp[:19], "%Y-%m-%dT%H:%M:%S"))
+            except ValueError:
+                epoch = 0
+            if epoch >= fourteen_days_ago:
+                cluster["last_14d"] += 1
+
+        repeated = sorted(
+            (cluster for cluster in clusters.values() if cluster["count"] >= 2),
+            key=lambda cluster: cluster["count"],
+            reverse=True,
+        )
+        singletons = sorted(
+            (cluster for cluster in clusters.values() if cluster["count"] == 1),
+            key=lambda cluster: cluster["recent"],
+            reverse=True,
+        )
+        print(f"Distinct repeated instruction-gap clusters: {len(repeated)}")
+        for cluster in repeated + singletons:
+            print(
+                f"  - [total={cluster['count']} last_14d={cluster['last_14d']} "
+                f"recent={cluster['recent']}] {cluster['text']}"
+            )
 
     issues = [e for e in entries if e.get("kind") == "orchestration_issue"]
     if issues:
@@ -167,8 +226,16 @@ def cmd_retro(argv):
     retros = [e for e in entries if e.get("kind") == "run_retro"]
     if retros:
         print("\nRun retros:")
-        for e in retros[-5:]:
-            print(f"  - [{e.get('ts', '')[:10]} {e.get('repo')}] {e.get('notes')}")
+        for e in retros:
+            # the prose lives under whichever key the entry happened to use;
+            # an unreadable retro log is one nobody reads before the next run
+            prose = (e.get("notes") or e.get("note") or e.get("summary")
+                     or e.get("lessons") or e.get("what_to_change")
+                     or e.get("task") or "")
+            if e.get("instruction_gap"):
+                gap = f"instruction_gap: {e['instruction_gap']}"
+                prose = f"{prose}; {gap}" if prose else gap
+            print(f"  - [{e.get('ts', '')[:10]} {e.get('repo')}] {prose}")
 
 
 def cmd_tail(argv):

@@ -16,11 +16,13 @@ cp -r orch-development ~/.claude/skills/orch-development
 
 (Or drop it into a plugin's `skills/` directory.) It activates on phrases like "orch-development", "orchestrated development", "multi-agent dev", or "let the orchestrator drive".
 
+**Two files, and the split matters.** `SKILL.md` is the orchestrator's file — every gate is stated there in full, because a gate that lives in a file you might not open has stopped being a gate. `DEV_BRIEF.md` is the developer's file: the role override, the no-backgrounding rule, TDD, the engineering standards, the honest-report contract. It is **pasted verbatim into every dispatch** rather than consulted, so it stays one versioned artifact — which is also what lets you attribute a change in dev outcomes to a change in what devs were told (`git log --before=<devlog ts> -1 -- DEV_BRIEF.md`). Retyping it from memory is how a `## Git` requirement went missing and a dev finished green with 784 passing tests and nothing committed.
+
 `devlog.py` ships alongside the skill as a working reference implementation of the retrospective log — append one entry per verification, then aggregate before the next run:
 
 ```bash
 python3 devlog.py add --json '{"kind":"task","model":"…","tier":"standard","attempt":1,"outcome":"pass"}'
-python3 devlog.py retro --days 30     # fail rate per model, failure classes, gate escapes, instruction gaps
+python3 devlog.py retro --days 30     # fail rate per model, failure classes, gate escapes, clustered instruction gaps
 ```
 
 It's plain stdlib Python writing JSONL (`./devlog/devlog.jsonl`, or `$DEVLOG_FILE`). Use it, or point the skill at whatever log you already keep — the discipline matters more than the tool.
@@ -35,8 +37,11 @@ The methodology is model-agnostic; a few things you should tailor:
 - [ ] **Your CI / E2E gate.** The "standing invariant" step assumes you can add a durable check; point it at your CI and E2E harness.
 - [ ] **Your limits.** Rate/budget/context caps differ per plan — the skill hands off at ~70/80 % of whatever your ceiling is, but the ceiling is yours to know.
 - [ ] **Your baton-pass command.** The skill starts a fresh session pointed at `HANDOFF.md` when a limit is near; the exact launch command (and which account/profile it targets) depends on your tool.
-- [ ] **Your visual QA loop.** Checklist item 7 requires real screenshots in both themes at two viewports — wire it to your browser automation.
+- [ ] **Your visual QA loop, at two cadences.** Checklist item 7 wants a *cheap* per-deploy pass (drive the newly shipped flow on the deployed target and look at it) and an *exhaustive* per-release report attached to the `develop` → `main` promotion. Wire both to your browser automation, and set the cheap one at a frequency you can actually meet — a gate nobody meets is worse than none.
+- [ ] **Your trunks.** The skill assumes `develop` (verified work auto-merges, no human step) and `main` (release, human gate). Auto-merge into `develop` is licensed **only** where `develop` runs an E2E suite — without it, keep the human gate on both, or build the suite first. Record which trunks a repo has in its `DEPLOYMENT.md`.
 - [ ] **A `DEPLOYMENT.md` per deploying repo.** Playbook §6 makes this mandatory: where each environment lives, how it ships, how to roll back. Write it once from what you already know, mark unverified rows as such, and correct it as reality contradicts it. Names of env vars and vault paths only — never a secret value.
+- [ ] **Your `DEV_BRIEF.md`.** The version here is deliberately stack-agnostic. Add your own non-negotiables (a package manager, a formatter, a commit convention) — but keep *project-specific* rules in that project's own convention file, or the brief silts up and stops being portable.
+- [ ] **Your live-probe path for third-party vocabulary.** Playbook §1c requires the orchestrator to see a provider accept each name before it merges. Work out where you can run that probe with a real credential (ideally inside the deployed environment, so nothing is copied out) and commit it as a script — the next version bump re-runs it instead of re-reasoning about it.
 - [ ] **Your devlog.** `devlog.py` works out of the box; swap in whatever you already use.
 
 ## Setting up your model families
