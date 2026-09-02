@@ -50,7 +50,18 @@ def detect_repo():
             return os.path.basename(r.stdout.strip())
     except OSError:
         pass
-    return os.path.basename(os.getcwd())
+    return os.path.basename(_safe_cwd())
+
+
+def _safe_cwd():
+    """`os.getcwd()` can raise (EPERM) when the process may not read its own
+    working directory. Here the cwd is a convenience, not load-bearing
+    information -- it must never decide whether this tool runs at all. The
+    shell that launched us knows $PWD; failing even that, home is enough."""
+    try:
+        return os.getcwd()
+    except OSError:
+        return os.environ.get("PWD") or os.path.expanduser("~")
 
 
 def cmd_add(argv):

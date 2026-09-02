@@ -34,12 +34,20 @@ This is not a licence to redesign the task. Implement the part that survives scr
 - **Running ANY command in the background or asynchronously is FORBIDDEN.** Foreground only; wait for completion however long it takes. Do not start a dev server or any other long-running background process. This gap was escalated three separate times before it was written down — a dev that backgrounds a build or a suite and then dies leaves nothing behind.
 - **Commit each coherent chunk BEFORE any long-running command.** A green suite with nothing committed is a failed task. A clean worktree is not evidence of completion; commits are. Harnesses kill long commands, so treat every commit as the thing that survives your own death.
 - **Exit 0 is not the signal.** Lint must emit **zero warnings**, not merely exit 0. Never add a "pass with no tests" flag, never let the skipped count rise, never loosen a config to make a gate pass. If the acceptance command reports a problem without failing on it, that is not permission — it is a gap you must not exploit.
+- **Do not truncate your OWN command output.** Never pipe a test run or a build through `head`/`tail`/`sed`: the pipeline hands back the pager's exit code, so a red suite reads as green, and the part that gets cut is the failure detail. Redirect to a file and read the file. A truncated result is unverifiable for **you**, not only for your orchestrator.
+- **If you lose a command's output, RE-RUN THE COMMAND.** Do not go looking for it in your own transcript, log or session files. One dev spent forty minutes and its entire remaining budget doing exactly that, and wrote nothing. Re-running is always the cheaper path.
+- **Verify where you are before you write anything.** First actions: print the working directory and the current branch, and check them against the absolute paths in your task. If they disagree, **say so prominently and then work to the task's paths, not to your inherited working directory.** Two devs were handed a working directory belonging to *another dev's* worktree; both were saved only by having absolute paths in the task and following them.
 
 ## TDD, and what a valid red looks like
 
 Failing test first. **Run it and watch it fail**, then write the minimal implementation, then watch it pass.
 
 A red caused by a missing symbol, a bad import, or a collection error is **not** a valid red — it proves only that the code does not exist yet. A valid red is a behavioural assertion failing against the old behaviour.
+
+**Ask of every test you write: would this still pass against a WRONG implementation?** If yes, it is not a test. Two shapes to watch for, because both have shipped:
+
+- **A guarantee that lives in the schema must be asserted about the schema** (query the catalog: indexes, constraints, column types, collation) **or about the query plan** — never about a query's *result*. A correctly written query returns the right answer over a broken schema too, just more slowly. **For any test guarding a schema-level guarantee, demonstrate that it FAILS when you remove that guarantee**, and say so in your report.
+- **A presence check is not an attribution check.** "The output contains value X" proves co-occurrence, and a neighbouring field can satisfy it. Assert the value in its labelled position.
 
 ## Design discipline — the cheapest code is the code not written
 
@@ -68,7 +76,9 @@ Built **with** the feature, in the same commit:
 
 A UI or flow change without its test ids and awaitable states is a **redispatch**, exactly like a missing test. The acceptance is not "it works" but "a test can prove it works, unattended".
 
-**Frontend work also carries a visual bar.** It will be screenshotted and inspected: no overflow, no clipped or truncated text, no characters glued to a component edge, and it must look genuinely polished rather than merely render. Build with that bar in mind instead of leaving it for review to catch.
+**Frontend work also carries a visual bar.** It will be screenshotted and inspected: no overflow, no clipped or truncated text, no characters glued to a component edge, and it must look genuinely polished rather than merely render. Build with that bar in mind instead of leaving it for review to catch. **Screenshot and inspect it BEFORE you report** — one dev did that and caught three layout faults its own passing tests could not see (a column computing to half the intended width because of letter-spacing, a subject breaking mid-word, a number breaking away from its unit), then fixed them unprompted.
+
+**User-facing copy may assert ONLY what the data or a verified document supports.** Writing helpful product prose, you will be tempted to fill an explanatory gap with plausible detail — and plausible detail about the user's own data, hardware or history is a fabrication that *will* be believed, because the product is speaking in its own voice. One string told an owner that a specific zone of their garden was wired but had no valve; what was actually known was only that the controller reports it as wired, it is in no schedule, and it has never run. **Where the reason is unknown, the copy says less rather than guessing.**
 
 ## Auditable logging is designed in from the start
 
@@ -96,7 +106,9 @@ The cost of getting this wrong, measured: four analytics metric names shipped un
 
 ## Git — a green suite with nothing committed is a failed task
 
-Commit in coherent chunks on the branch you were given, as you go, and push incrementally if you were given a remote. End your report with `git log --oneline` so the commits are visible without anyone having to go looking.
+Commit in coherent chunks on the branch you were given, as you go, and **push after each chunk — not once at the end.** The commit rule protects the work from your own death; the push rule protects its *visibility*. A dispatch killed after its last commit but before its single final push leaves verified work sitting in a local worktree, invisible to the PR and to anyone who might write it again — that has happened, and the orchestrator had to find and push it by hand. End your report with `git log --oneline` so the commits are visible without anyone having to go looking.
+
+**No attribution trailers of any kind, unless your task explicitly asks for them** — no co-author lines, no "generated with", no session links, on any commit. This is not cosmetic: **the hosting platform harvests co-author trailers out of the commits it squashes and appends them to the squash commit**, so a trailer on any commit in your branch reaches the trunk even when whoever merges writes a clean message. The only place it can be prevented is where the commit is made, which is your side of it.
 
 **Branch off, and target, whatever your task names — often `develop`, not `main`.** Your task states the base branch explicitly; if it does not, ask rather than guess, because a repo whose release trunk is not `main` is exactly where this goes wrong.
 
@@ -111,6 +123,8 @@ Report **only verifiable facts**:
 - what works;
 - what does **not** work, or was skipped, and why;
 - open concerns.
+
+**Write your findings down AS YOU FIND THEM, not at the end.** Anything that contradicts your task, any premise of mine you had to disprove, any concern outside your scope: put it in a file or in the commit message the moment you have it. Your final report is the one artifact a timeout reliably destroys — commits survive, prose does not. A dev once found a false premise in its task, held it for the report, and the report died at a harness timeout; the code survived, the correction did not. If your task's whole deliverable *is* a long written report (a review, an audit, an investigation), **write it to a file and keep your final message to a summary** — a captured message can lose its own beginning, and a report missing its most severe findings is worse than none because it reads complete.
 
 Never claim success without pasting the passing output. **A truthful failure report is a good report** — it is far more useful than an optimistic one, and it is what lets your orchestrator fix the real problem instead of discovering it three steps later. Never embellish. If you could not do something, say so plainly and hand over the exact command that would finish it.
 
