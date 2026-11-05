@@ -37,6 +37,7 @@ This is not a licence to redesign the task. Implement the part that survives scr
 - **Do not truncate your OWN command output.** Never pipe a test run or a build through `head`/`tail`/`sed`: the pipeline hands back the pager's exit code, so a red suite reads as green, and the part that gets cut is the failure detail. Redirect to a file and read the file. A truncated result is unverifiable for **you**, not only for your orchestrator.
 - **If you lose a command's output, RE-RUN THE COMMAND.** Do not go looking for it in your own transcript, log or session files. One dev spent forty minutes and its entire remaining budget doing exactly that, and wrote nothing. Re-running is always the cheaper path.
 - **Verify where you are before you write anything.** First actions: print the working directory and the current branch, and check them against the absolute paths in your task. If they disagree, **say so prominently and then work to the task's paths, not to your inherited working directory.** Two devs were handed a working directory belonging to *another dev's* worktree; both were saved only by having absolute paths in the task and following them.
+- **Never kill or match processes by pattern** (`pkill -f`, `killall`, a `ps | grep`). A pattern also matches other agents' processes — including an agent whose prompt contains your pattern; a gate cleanup that did this killed a dev mid-task. Kill only PIDs you started.
 
 ## TDD, and what a valid red looks like
 
@@ -44,10 +45,11 @@ Failing test first. **Run it and watch it fail**, then write the minimal impleme
 
 A red caused by a missing symbol, a bad import, or a collection error is **not** a valid red — it proves only that the code does not exist yet. A valid red is a behavioural assertion failing against the old behaviour.
 
-**Ask of every test you write: would this still pass against a WRONG implementation?** If yes, it is not a test. Two shapes to watch for, because both have shipped:
+**Ask of every test you write: would this still pass against a WRONG implementation?** If yes, it is not a test. Three shapes to watch for, because all three have shipped:
 
 - **A guarantee that lives in the schema must be asserted about the schema** (query the catalog: indexes, constraints, column types, collation) **or about the query plan** — never about a query's *result*. A correctly written query returns the right answer over a broken schema too, just more slowly. **For any test guarding a schema-level guarantee, demonstrate that it FAILS when you remove that guarantee**, and say so in your report.
 - **A presence check is not an attribution check.** "The output contains value X" proves co-occurrence, and a neighbouring field can satisfy it. Assert the value in its labelled position.
+- **A test of timing or concurrency is driven by events, barriers or an injected clock — never by wall-clock deadlines.** It passes on your machine and fails on a loaded CI runner, and tasks have hit their attempt cap over exactly that.
 
 ## Design discipline — the cheapest code is the code not written
 
@@ -106,7 +108,9 @@ The cost of getting this wrong, measured: four analytics metric names shipped un
 
 ## Git — a green suite with nothing committed is a failed task
 
-Commit in coherent chunks on the branch you were given, as you go, and **push after each chunk — not once at the end.** The commit rule protects the work from your own death; the push rule protects its *visibility*. A dispatch killed after its last commit but before its single final push leaves verified work sitting in a local worktree, invisible to the PR and to anyone who might write it again — that has happened, and the orchestrator had to find and push it by hand. End your report with `git log --oneline` so the commits are visible without anyone having to go looking.
+Commit in coherent chunks on the branch you were given, as you go, and **push after each chunk — not once at the end.** The commit rule protects the work from your own death; the push rule protects its *visibility*. A dispatch killed after its last commit but before its single final push leaves verified work sitting in a local worktree, invisible to the PR and to anyone who might write it again — that has happened, and the orchestrator had to find and push it by hand. End your report with `git log --oneline` so the commits are visible without anyone having to go looking — and, if you pushed, `git ls-remote origin <your branch>` showing the same SHA. A push is not done until the remote says so.
+
+**If your sandbox refuses a git write, try once, stop, and say so.** Leave every change in the working tree and list the files in your report; never work around the refusal. Some sandboxes make `.git` read-only even in a full clone, and then your orchestrator commits for you.
 
 **No attribution trailers of any kind, unless your task explicitly asks for them** — no co-author lines, no "generated with", no session links, on any commit. This is not cosmetic: **the hosting platform harvests co-author trailers out of the commits it squashes and appends them to the squash commit**, so a trailer on any commit in your branch reaches the trunk even when whoever merges writes a clean message. The only place it can be prevented is where the commit is made, which is your side of it.
 
