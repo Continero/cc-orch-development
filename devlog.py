@@ -25,6 +25,7 @@ Entry schema (flat JSON, unknown keys allowed and kept):
                  (topology | tls | config-precedence | toolchain | disk)
   caught_by: done_when | checklist-<n> | cross-family-review | visual-qa |
              standing-invariant | escaped        <- 'escaped' is a gate gap, not just a task fail
+             (name first, any qualifier after it in parentheses: the retro buckets on the name)
   detection_latency: at-dispatch | at-tick | at-merge | escaped-to-prod
   what_failed: what verification caught       fix_action: redispatch | tier_up | prompt_fix | human
   instruction_gap: what the dispatch prompt should have said but did not
@@ -32,6 +33,7 @@ Entry schema (flat JSON, unknown keys allowed and kept):
 """
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -115,6 +117,22 @@ def load(days=None, repo=None):
     return out
 
 
+def gate_name(value):
+    """Bucket a free-text gate attribution on the gate's name.
+
+    The convention is the name first, qualifiers after it in parentheses, so
+    'Cross-family review (family B)' and 'cross-family  review' are one gate.
+    Without this, every qualifier becomes its own bucket and the histogram
+    that says which gates pay fragments into singletons."""
+    text = " ".join(str(value).split()).lower()
+    return re.split(r"[(;]", text, maxsplit=1)[0].strip(" ,.") or text
+
+
+def is_escape(e):
+    return any(gate_name(e.get(key) or "").startswith("escaped")
+               for key in ("caught_by", "detection_latency"))
+
+
 def arg_val(argv, flag, default=None, cast=str):
     if flag in argv:
         return cast(argv[argv.index(flag) + 1])
@@ -135,9 +153,9 @@ def cmd_retro(argv):
         scope += f", repo={repo}"
     print(f"# Retro ({scope}): {len(tasks)} task entries, {len(entries) - len(tasks)} other\n")
 
-    def dist(label, key, source=None):
+    def dist(label, key, source=None, norm=None):
         src = tasks if source is None else source
-        c = Counter(e.get(key) or "?" for e in src)
+        c = Counter((norm(e[key]) if norm and e.get(key) else e.get(key)) or "?" for e in src)
         if c and list(c) != ["?"]:
             print(f"{label}: " + "  ".join(f"{k}={v}" for k, v in c.most_common()))
 
@@ -163,14 +181,18 @@ def cmd_retro(argv):
         dist("Infra sub-causes", "infra_vs_code", infra)
 
     # which gate stopped it; 'escaped' means a gate gap to fix, not just a failed task
-    dist("Caught by", "caught_by", fails)
-    dist("Detection latency", "detection_latency", fails)
-    escaped = [e for e in fails
-               if e.get("caught_by") == "escaped" or e.get("detection_latency") == "escaped-to-prod"]
+    dist("Caught by", "caught_by", fails, gate_name)
+    dist("Detection latency", "detection_latency", fails, gate_name)
+    # matched on the normalised name, not the exact string: a free-text
+    # 'escaped (found in production)' is still an escape. Orchestration issues
+    # count too — most escapes are the orchestrator's, not a dev task's.
+    issues = [e for e in entries if e.get("kind") == "orchestration_issue"]
+    escaped = sorted((e for e in fails + issues if is_escape(e)), key=lambda e: e.get("ts", ""))
     if escaped:
         print(f"\n!! {len(escaped)} escape(s) — each is a GATE GAP, fix the gate not just the task:")
         for e in escaped[-5:]:
-            print(f"  - [{e.get('ts', '')[:10]}] {e.get('what_failed') or e.get('task')}")
+            what = e.get("what_failed") or e.get("task") or e.get("notes") or "?"
+            print(f"  - [{e.get('ts', '')[:10]}] {what}")
 
     # how often the signals are actually being logged — a gate-attribution field
     # nobody fills in cannot tell you whether your gates work
@@ -228,7 +250,6 @@ def cmd_retro(argv):
                 f"recent={cluster['recent']}] {cluster['text']}"
             )
 
-    issues = [e for e in entries if e.get("kind") == "orchestration_issue"]
     if issues:
         print("\nOrchestration issues:")
         for e in issues[-10:]:
