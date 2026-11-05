@@ -165,11 +165,18 @@ def cmd_retro(argv):
     dist("By family", "family")
 
     fails = [e for e in tasks if e.get("outcome") != "pass"]
-    if tasks:
-        by_model_fail = Counter(e.get("model") or "?" for e in fails)
-        by_model_all = Counter(e.get("model") or "?" for e in tasks)
+    # a rate is over verdicts only: an in-flight or off-schema outcome
+    # ('pending', 'dispatched', ...) is not a failure, and counting it as one
+    # demotes a model for being busy (see the routing rule this feeds)
+    judged = [e for e in tasks if e.get("outcome") in ("pass", "redispatch", "escalated", "abandoned")]
+    if judged:
+        by_model_fail = Counter(e.get("model") or "?" for e in judged if e.get("outcome") != "pass")
+        by_model_all = Counter(e.get("model") or "?" for e in judged)
         rates = {m: f"{by_model_fail.get(m, 0)}/{n}" for m, n in by_model_all.items()}
         print("Fail rate per model: " + "  ".join(f"{m}={r}" for m, r in rates.items()))
+    if len(judged) < len(tasks):
+        print(f"  ({len(tasks) - len(judged)} task entries without a pass/redispatch/escalated/"
+              "abandoned outcome are left out of the rates)")
 
     fc = Counter(e.get("failure_class") for e in fails if e.get("failure_class"))
     if fc:
